@@ -17,9 +17,61 @@ import {
   serverTimestamp,
   getDoc,
   getDocs,
+  getDocFromServer,
   runTransaction
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 type GameState = "landing" | "playing";
 
@@ -61,6 +113,20 @@ export default function App() {
   const screenShakeRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(0);
 
+  // Connection test
+  useEffect(() => {
+    async function testConnection() {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. ");
+        }
+      }
+    }
+    testConnection();
+  }, []);
+
   // Auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -101,8 +167,11 @@ export default function App() {
         }
       } else {
         // Initialize room if it doesn't exist
-        setDoc(roomRef, { currentLevel: 0, isCountingDown: false, isGameStarted: false });
+        setDoc(roomRef, { currentLevel: 0, isCountingDown: false, isGameStarted: false })
+          .catch(e => handleFirestoreError(e, OperationType.WRITE, `rooms/${roomId}`));
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `rooms/${roomId}`);
     });
 
     // 2. Listen to players
@@ -160,47 +229,52 @@ export default function App() {
       const allReady = allPlayers.length > 0 && allPlayers.every(p => p.ready);
       
       if (allReady && !isGameStartedRef.current) {
-        // Only one player needs to trigger the countdown
-        // We can use a transaction or just the first player in the list
-        const roomData = snapshot.docs[0].ref.parent.parent; // This is a bit hacky
-        // Better: use the roomRef we already have
         checkAndStartCountdown(allPlayers.length);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `rooms/${roomId}/players`);
     });
 
     return () => {
       unsubscribeRoom();
       unsubscribePlayers();
       // Cleanup: remove player from room
-      deleteDoc(doc(db, "rooms", roomId, "players", user.uid));
+      deleteDoc(doc(db, "rooms", roomId, "players", user.uid))
+        .catch(e => console.error("Error removing player on cleanup", e));
     };
   }, [gameState, user, roomId]);
 
   const checkAndStartCountdown = async (playerCount: number) => {
     if (playerCount === 0) return;
     const roomRef = doc(db, "rooms", roomId);
-    const roomSnap = await getDoc(roomRef);
-    if (roomSnap.exists() && !roomSnap.data().isCountingDown && !roomSnap.data().isGameStarted) {
-      await updateDoc(roomRef, { isCountingDown: true, countdown: 3 });
-      
-      // Start a local interval to update the countdown
-      // In a real app, you'd use a Cloud Function, but for a simple game, 
-      // the "host" (first player) can do it.
-      const playersSnap = await getDocs(collection(db, "rooms", roomId, "players"));
-      const hostId = playersSnap.docs[0].id;
-      
-      if (hostId === user.uid) {
-        let count = 3;
-        const interval = setInterval(async () => {
-          count--;
-          if (count < 0) {
-            clearInterval(interval);
-            await updateDoc(roomRef, { isCountingDown: false, isGameStarted: true, countdown: null });
-          } else {
-            await updateDoc(roomRef, { countdown: count });
-          }
-        }, 1000);
+    try {
+      const roomSnap = await getDoc(roomRef);
+      if (roomSnap.exists() && !roomSnap.data().isCountingDown && !roomSnap.data().isGameStarted) {
+        await updateDoc(roomRef, { isCountingDown: true, countdown: 3 });
+        
+        const playersSnap = await getDocs(collection(db, "rooms", roomId, "players"));
+        const hostId = playersSnap.docs[0].id;
+        
+        if (hostId === user.uid) {
+          let count = 3;
+          const interval = setInterval(async () => {
+            count--;
+            try {
+              if (count < 0) {
+                clearInterval(interval);
+                await updateDoc(roomRef, { isCountingDown: false, isGameStarted: true, countdown: null });
+              } else {
+                await updateDoc(roomRef, { countdown: count });
+              }
+            } catch (e) {
+              clearInterval(interval);
+              console.error("Error updating countdown", e);
+            }
+          }, 1000);
+        }
       }
+    } catch (e) {
+      handleFirestoreError(e, OperationType.GET, `rooms/${roomId}`);
     }
   };
 
@@ -294,7 +368,7 @@ export default function App() {
           shape: p.state.shape,
           expression: p.state.expression,
           lastUpdate: serverTimestamp()
-        });
+        }).catch(e => console.error("Throttled update failed", e));
       }
     }
 
@@ -460,81 +534,107 @@ export default function App() {
   };
 
   const handleStartPlaying = async () => {
-    if (!user) {
+    let currentUser = auth.currentUser;
+    if (!currentUser) {
       try {
-        await signInWithGoogle();
+        currentUser = await signInWithGoogle();
       } catch (e) {
+        console.error("Sign in failed", e);
+        alert("Please sign in to play!");
         return;
       }
+    }
+
+    if (!currentUser) {
+      alert("Authentication failed. Please try again.");
+      return;
     }
 
     const finalRoom = tempRoomId.trim() || "lobby";
     setRoomId(finalRoom);
     
-    // Initialize player in Firestore
-    const playerRef = doc(db, "rooms", finalRoom, "players", auth.currentUser!.uid);
-    await setDoc(playerRef, {
-      id: auth.currentUser!.uid,
-      name: playerName,
-      color: playerColor,
-      shape: playerShape,
-      x: 100,
-      y: 100,
-      vx: 0,
-      vy: 0,
-      ready: false,
-      expression: "neutral",
-      facing: 1,
-      lastUpdate: serverTimestamp()
-    });
+    try {
+      // Initialize player in Firestore
+      const playerRef = doc(db, "rooms", finalRoom, "players", currentUser.uid);
+      await setDoc(playerRef, {
+        id: currentUser.uid,
+        name: playerName,
+        color: playerColor,
+        shape: playerShape,
+        x: 100,
+        y: 100,
+        vx: 0,
+        vy: 0,
+        ready: false,
+        expression: "neutral",
+        facing: 1,
+        lastUpdate: serverTimestamp()
+      });
 
-    localPlayer.state.id = auth.currentUser!.uid;
-    localPlayer.state.name = playerName;
-    localPlayer.state.color = playerColor;
-    localPlayer.state.shape = playerShape;
-    
-    setGameState("playing");
+      localPlayer.state.id = currentUser.uid;
+      localPlayer.state.name = playerName;
+      localPlayer.state.color = playerColor;
+      localPlayer.state.shape = playerShape;
+      
+      setGameState("playing");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `rooms/${finalRoom}/players/${currentUser.uid}`);
+    }
   };
 
   const sendEmote = async (emote: string) => {
     if (user) {
-      await updateDoc(doc(db, "rooms", roomId, "players", user.uid), { emote });
-      // Reset emote after a short delay so it can be triggered again
-      setTimeout(() => {
-        updateDoc(doc(db, "rooms", roomId, "players", user.uid), { emote: null });
-      }, 100);
+      try {
+        await updateDoc(doc(db, "rooms", roomId, "players", user.uid), { emote });
+        // Reset emote after a short delay so it can be triggered again
+        setTimeout(() => {
+          updateDoc(doc(db, "rooms", roomId, "players", user.uid), { emote: null })
+            .catch(e => console.error("Emote reset failed", e));
+        }, 100);
+      } catch (e) {
+        console.error("Emote update failed", e);
+      }
     }
   };
 
   const toggleReady = async () => {
     if (user) {
-      const nextReady = !isReady;
-      setIsReady(nextReady);
-      await updateDoc(doc(db, "rooms", roomId, "players", user.uid), { ready: nextReady });
+      try {
+        const nextReady = !isReady;
+        setIsReady(nextReady);
+        await updateDoc(doc(db, "rooms", roomId, "players", user.uid), { ready: nextReady });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `rooms/${roomId}/players/${user.uid}`);
+      }
     }
   };
 
   const handleLevelComplete = async () => {
     const roomRef = doc(db, "rooms", roomId);
-    const roomSnap = await getDoc(roomRef);
-    if (roomSnap.exists()) {
-      const nextLevel = roomSnap.data().currentLevel + 1;
-      if (nextLevel < LEVELS.length) {
-        await updateDoc(roomRef, { 
-          currentLevel: nextLevel, 
-          isGameStarted: false,
-          isCountingDown: false
-        });
-        // Reset all players ready state
-        const playersSnap = await getDocs(collection(db, "rooms", roomId, "players"));
-        playersSnap.docs.forEach(async (d) => {
-          await updateDoc(d.ref, { ready: false, x: 100, y: 100 });
-        });
-      } else {
-        alert("Congratulations! You've completed all levels!");
-        await updateDoc(roomRef, { currentLevel: 0, isGameStarted: false });
-        setGameState("landing");
+    try {
+      const roomSnap = await getDoc(roomRef);
+      if (roomSnap.exists()) {
+        const nextLevel = roomSnap.data().currentLevel + 1;
+        if (nextLevel < LEVELS.length) {
+          await updateDoc(roomRef, { 
+            currentLevel: nextLevel, 
+            isGameStarted: false,
+            isCountingDown: false
+          });
+          // Reset all players ready state
+          const playersSnap = await getDocs(collection(db, "rooms", roomId, "players"));
+          playersSnap.docs.forEach(async (d) => {
+            await updateDoc(d.ref, { ready: false, x: 100, y: 100 })
+              .catch(e => console.error("Player reset failed", e));
+          });
+        } else {
+          alert("Congratulations! You've completed all levels!");
+          await updateDoc(roomRef, { currentLevel: 0, isGameStarted: false });
+          setGameState("landing");
+        }
       }
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `rooms/${roomId}`);
     }
   };
 
@@ -634,14 +734,25 @@ export default function App() {
                     />
                   </div>
                   <div className="flex gap-2">
-                    <button 
-                      onClick={handleStartPlaying}
-                      className="flex-1 group relative flex items-center justify-center gap-3 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase tracking-tighter py-4 rounded-xl transition-all overflow-hidden"
-                    >
-                      <Play size={20} fill="black" />
-                      <span>Enter Arena</span>
-                      <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
-                    </button>
+                    {!user ? (
+                      <button 
+                        onClick={() => signInWithGoogle().catch(e => console.error("Sign in failed", e))}
+                        className="flex-1 group relative flex items-center justify-center gap-3 bg-white text-black font-black uppercase tracking-tighter py-4 rounded-xl transition-all overflow-hidden"
+                      >
+                        <User size={20} fill="black" />
+                        <span>Sign In with Google</span>
+                        <div className="absolute inset-0 bg-black/5 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={handleStartPlaying}
+                        className="flex-1 group relative flex items-center justify-center gap-3 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase tracking-tighter py-4 rounded-xl transition-all overflow-hidden"
+                      >
+                        <Play size={20} fill="black" />
+                        <span>Enter Arena</span>
+                        <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
+                      </button>
+                    )}
                     <button 
                       onClick={() => setShowHowToPlay(true)}
                       className="px-4 py-4 bg-white/5 border border-white/10 rounded-xl text-white/50 hover:text-white hover:border-white/30 transition-all"
