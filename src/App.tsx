@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { GamePlayer } from "./game/Player";
 import { Particle } from "./game/Particle";
 import { LEVELS, MAP_WIDTH, MAP_HEIGHT } from "./game/constants";
-import { MoveLeft, MoveRight, ArrowUp, Map as MapIcon, Play, Info, Trophy, Github, Twitter, X, CheckCircle2, Circle, User } from "lucide-react";
+import { MoveLeft, MoveRight, ArrowUp, Map as MapIcon, Play, Info, Trophy, Github, Twitter, X, CheckCircle2, Circle, User, Instagram } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { db, auth, signInWithGoogle } from "./lib/firebase";
+import { db, auth, signInWithGoogle, signInAnonymously } from "./lib/firebase";
 import { 
   collection, 
   doc, 
@@ -80,6 +80,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [gameState, setGameState] = useState<GameState>("landing");
   const [showHowToPlay, setShowHowToPlay] = useState(false);
+  const [showCredits, setShowCredits] = useState(false);
   const [roomId, setRoomId] = useState("lobby");
   const [tempRoomId, setTempRoomId] = useState("");
   const [currentLevel, setCurrentLevel] = useState(0);
@@ -537,10 +538,10 @@ export default function App() {
     let currentUser = auth.currentUser;
     if (!currentUser) {
       try {
-        currentUser = await signInWithGoogle();
+        currentUser = await signInAnonymously();
       } catch (e) {
-        console.error("Sign in failed", e);
-        alert("Please sign in to play!");
+        console.error("Guest sign in failed", e);
+        alert("Failed to start as guest. Please try again!");
         return;
       }
     }
@@ -658,6 +659,14 @@ export default function App() {
               transition={{ delay: 0.2 }}
               className="relative z-10 w-full max-w-5xl my-auto"
             >
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: [0.4, 1, 0.4] }}
+                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                className="mb-2 text-cyan-400 font-black uppercase tracking-[0.4em] text-[10px] drop-shadow-[0_0_10px_rgba(34,211,238,0.6)]"
+              >
+                gopu and govind presents
+              </motion.div>
               <div className="mb-4 inline-block px-4 py-1 bg-cyan-500/10 border border-cyan-500/30 rounded-full text-cyan-400 text-[10px] font-black uppercase tracking-[0.2em]">
                 Version 1.0.0 Alpha
               </div>
@@ -736,11 +745,11 @@ export default function App() {
                   <div className="flex gap-2">
                     {!user ? (
                       <button 
-                        onClick={() => signInWithGoogle().catch(e => console.error("Sign in failed", e))}
+                        onClick={() => handleStartPlaying().catch(e => console.error("Guest entry failed", e))}
                         className="flex-1 group relative flex items-center justify-center gap-3 bg-white text-black font-black uppercase tracking-tighter py-4 rounded-xl transition-all overflow-hidden"
                       >
                         <User size={20} fill="black" />
-                        <span>Sign In with Google</span>
+                        <span>Play as Guest</span>
                         <div className="absolute inset-0 bg-black/5 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
                       </button>
                     ) : (
@@ -760,6 +769,21 @@ export default function App() {
                     >
                       <Info size={20} />
                     </button>
+                    
+                    <motion.button 
+                      animate={{ 
+                        backgroundColor: ["rgba(6, 182, 212, 0.1)", "rgba(236, 72, 153, 0.1)", "rgba(168, 85, 247, 0.1)", "rgba(6, 182, 212, 0.1)"],
+                        borderColor: ["rgba(6, 182, 212, 0.5)", "rgba(236, 72, 153, 0.5)", "rgba(168, 85, 247, 0.5)", "rgba(6, 182, 212, 0.5)"],
+                        color: ["#22d3ee", "#f472b6", "#c084fc", "#22d3ee"],
+                        scale: [1, 1.05, 1]
+                      }}
+                      transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                      onClick={() => setShowCredits(true)}
+                      className="px-8 py-4 border-2 rounded-2xl flex items-center justify-center transition-shadow hover:shadow-[0_0_30px_rgba(255,255,255,0.15)]"
+                      title="View Credits"
+                    >
+                      <Trophy size={32} fill="currentColor" />
+                    </motion.button>
                   </div>
                 </div>
               </div>
@@ -949,6 +973,57 @@ export default function App() {
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-2 bg-black/40 backdrop-blur-md border border-white/5 rounded-full text-white/30 text-[10px] font-black uppercase tracking-[0.3em] hidden md:block">
               WASD / Arrows to Move • Space to Jump • Double Jump Enabled
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Credits Modal */}
+      <AnimatePresence>
+        {showCredits && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-xl"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[40px] p-12 text-center overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-pink-500/5 pointer-events-none" />
+              
+              <h2 className="text-3xl font-black uppercase tracking-tighter italic text-white mb-2">Development Credits</h2>
+              <p className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em] mb-8">Meow Singh Parkour</p>
+
+              <div className="space-y-8 relative z-10">
+                <div>
+                  <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-2">Created By</p>
+                  <p className="text-white font-black text-xl tracking-tight">govind and gopu creations</p>
+                </div>
+
+                <div className="pt-4">
+                  <a 
+                    href="https://www.instagram.com/w_shaurya._?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw==" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-2xl text-white font-black text-xs uppercase tracking-widest transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(219,39,119,0.5)] active:scale-95"
+                  >
+                    <Instagram size={18} />
+                    <span>Follow Shaurya</span>
+                  </a>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowCredits(false)}
+                className="mt-12 w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-white/50 text-[10px] font-black uppercase tracking-[0.3em] transition-all"
+              >
+                Close Credits
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
