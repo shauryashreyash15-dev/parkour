@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "Room": {
+      "title": "Room",
+      "description": "A game room containing game state and metadata.",
+      "type": "object",
+      "properties": {
+        "currentLevel": {
+          "type": "integer",
+          "description": "The current level being played in the room."
+        },
+        "isCountingDown": {
+          "type": "boolean",
+          "description": "Whether the game is currently counting down to start."
+        },
+        "countdown": {
+          "type": "integer",
+          "description": "The current countdown value."
+        }
+      },
+      "required": [
+        "currentLevel",
+        "isCountingDown"
+      ]
+    },
+    "Player": {
+      "title": "Player",
+      "description": "A player within a game room.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique ID of the player."
+        },
+        "x": {
+          "type": "number",
+          "description": "The x-coordinate of the player."
+        },
+        "y": {
+          "type": "number",
+          "description": "The y-coordinate of the player."
+        },
+        "vx": {
+          "type": "number",
+          "description": "The x-velocity of the player."
+        },
+        "vy": {
+          "type": "number",
+          "description": "The y-velocity of the player."
+        },
+        "color": {
+          "type": "string",
+          "description": "The color of the player."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the player."
+        },
+        "shape": {
+          "type": "string",
+          "description": "The shape of the player."
+        },
+        "ready": {
+          "type": "boolean",
+          "description": "Whether the player is ready to start."
+        },
+        "expression": {
+          "type": "string",
+          "description": "The current expression of the player."
+        },
+        "facing": {
+          "type": "integer",
+          "description": "The direction the player is facing."
+        },
+        "lastUpdate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The last time the player's state was updated."
+        }
+      },
+      "required": [
+        "id",
+        "x",
+        "y",
+        "color",
+        "name",
+        "shape",
+        "ready"
+      ]
+    }
+  },
+  "firestore": {
+    "/rooms/{roomId}": {
+      "schema": "Room",
+      "description": "Collection of game rooms."
+    },
+    "/rooms/{roomId}/players/{playerId}": {
+      "schema": "Player",
+      "description": "Subcollection of players within a room."
+    }
+  }
+}

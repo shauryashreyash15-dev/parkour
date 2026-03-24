@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: rooms
+    // Document ID: roomId
+    // Fields:
+    //   - currentLevel: number (required)
+    //   - isCountingDown: boolean (required)
+    //   - countdown: number (optional)
+    //
+    // Collection: rooms/{roomId}/players
+    // Document ID: playerId
+    // Fields:
+    //   - id: string (required)
+    //   - x: number (required)
+    //   - y: number (required)
+    //   - vx: number (optional)
+    //   - vy: number (optional)
+    //   - color: string (required)
+    //   - name: string (required)
+    //   - shape: string (required)
+    //   - ready: boolean (required)
+    //   - expression: string (optional)
+    //   - facing: number (optional)
+    //   - lastUpdate: timestamp (optional)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "shashi.k.sinha76@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidRoom(data) {
+      return data.currentLevel is number &&
+             data.isCountingDown is bool;
+    }
+
+    function isValidPlayer(data) {
+      return data.id is string &&
+             data.x is number &&
+             data.y is number &&
+             data.color is string &&
+             data.name is string &&
+             data.shape is string &&
+             data.ready is bool;
+    }
+
+    // Rules
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow create, update: if isAuthenticated() && isValidRoom(request.resource.data);
+      allow delete: if isAdmin();
+
+      match /players/{playerId} {
+        allow read: if true;
+        allow create, update: if isAuthenticated() && isOwner(playerId) && isValidPlayer(request.resource.data);
+        allow delete: if isAuthenticated() && isOwner(playerId);
+      }
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId);
+    }
+  }
+}
