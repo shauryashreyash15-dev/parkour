@@ -30,13 +30,13 @@ export class Particle {
 
   draw(ctx: CanvasRenderingContext2D, offsetX: number, offsetY: number = 0) {
     const opacity = this.life / this.maxLife;
+    const drawX = Math.round(this.x - offsetX);
+    const drawY = Math.round(this.y - offsetY);
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.fillStyle = this.color;
-    ctx.shadowBlur = 5;
-    ctx.shadowColor = this.color;
     ctx.beginPath();
-    ctx.arc(this.x - offsetX, this.y - offsetY, this.size, 0, Math.PI * 2);
+    ctx.arc(drawX, drawY, this.size, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }

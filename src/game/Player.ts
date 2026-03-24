@@ -128,11 +128,14 @@ export class GamePlayer {
 
   reset() {
     this.state.x = 100;
-    this.state.y = 100;
+    this.state.y = 2700;
     this.state.vx = 0;
     this.state.vy = 0;
     this.scaleX = 1;
     this.scaleY = 1;
+    this.canDoubleJump = true;
+    this.isGrounded = false;
+    this.reachedGoal = false;
   }
 
   jump() {
@@ -164,8 +167,6 @@ export class GamePlayer {
       const drawX = this.state.x - offsetX + this.width / 2;
       const drawY = this.state.y - offsetY + this.height / 2;
       ctx.save();
-      ctx.shadowBlur = 20;
-      ctx.shadowColor = "#ff0055";
       ctx.fillStyle = "#ff0055";
       ctx.beginPath();
       ctx.arc(drawX, drawY, Math.random() * 20 + 10, 0, Math.PI * 2);
@@ -174,13 +175,11 @@ export class GamePlayer {
       return;
     }
 
-    const drawX = this.state.x - offsetX;
-    const drawY = this.state.y - offsetY;
+    const drawX = Math.round(this.state.x - offsetX);
+    const drawY = Math.round(this.state.y - offsetY);
 
     // Neon glow
     ctx.save();
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = this.state.color;
     ctx.fillStyle = this.state.color;
     
     // Apply squash and stretch
@@ -238,10 +237,10 @@ export class GamePlayer {
 
     // Name tag (outside squash/stretch)
     ctx.save();
-    ctx.fillStyle = "white";
-    ctx.font = "12px sans-serif";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.font = "10px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(this.state.name, drawX + this.width / 2, drawY - 10);
+    ctx.fillText(this.state.name, drawX + this.width / 2, drawY - 8);
     
     // Draw emote
     if (this.activeEmote) {
